@@ -1,955 +1,682 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Trophy, Users, Clock, MapPin, Flag, AlertTriangle, 
-  Play, Square, Settings, Timer, Car, Zap, Target,
-  ArrowUp, ArrowDown, RotateCcw, Ban, CheckCircle
+  MapPin, Users, Flag, Settings, Plus, X, 
+  AlertTriangle, CheckCircle, Clock, Car, Zap
 } from 'lucide-react';
+import { createRace } from '../../api/raceApi'; // Adjust path based on your folder structure
+import axios from 'axios';
 
-// API functions
-const raceAPI = {
-  getRaceById: async (raceId) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch(`/api/races/${raceId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch race: ${response.status}`);
-    }
-    return response.json();
-  },
-  
-  getRaceEntries: async (raceId) => {
-    const response = await fetch(`/api/races/${raceId}/entries`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch race entries: ${response.status}`);
-    }
-    return response.json();
-  },
-  
-  getEvents: async (raceId) => {
-    const response = await fetch(`/api/events/${raceId}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch events: ${response.status}`);
-    }
-    return response.json();
-  },
-  
-  updatePosition: async (raceId, racerId, newPosition) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('/api/races/position', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ raceId, racerId, newPosition })
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.msg || 'Failed to update position');
-    }
-    return response.json();
-  },
-  
-  markLap: async (raceId, racerId, lapTime) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('/api/races/lap', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ raceId, racerId, lapTime })
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.msg || 'Failed to record lap time');
-    }
-    return response.json();
-  },
-  
-  markPitStop: async (raceId, racerId, tyreType, pitTime) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('/api/races/pitstop', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ raceId, racerId, tyreType, pitTime })
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.msg || 'Failed to record pit stop');
-    }
-    return response.json();
-  },
-  
-  markDNF: async (raceId, racerId) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('/api/races/dnf', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ raceId, racerId })
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.msg || 'Failed to mark DNF');
-    }
-    return response.json();
-  },
-  
-  finalizeRace: async (raceId) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('/api/races/finalize', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ raceId })
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.msg || 'Failed to finalize race');
-    }
-    return response.json();
-  },
+// You'll need to add this function to your API service file
+const getRacers = async () => {
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  const api = axios.create({
+    baseURL: API_URL,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
 
-  startRace: async (raceId) => {
+  // Add request interceptor to include token
+  api.interceptors.request.use((config) => {
     const token = localStorage.getItem('token');
-    const response = await fetch('/api/races/start', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ raceId })
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.msg || 'Failed to start race');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
-    return response.json();
-  }
+    return config;
+  });
+
+  const response = await api.get('/api/racers');
+  return response.data;
 };
 
-const RaceControl = () => {
-  const { raceId } = useParams();
-  const navigate = useNavigate();
+const RaceCreate = () => {
+  const [formData, setFormData] = useState({
+    venue: '',
+    totalLaps: '',
+    defaultTyreType: 'medium',
+    startingGrid: []
+  });
   
-  const [race, setRace] = useState(null);
-  const [raceEntries, setRaceEntries] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [availableRacers, setAvailableRacers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchingRacers, setFetchingRacers] = useState(true);
   const [error, setError] = useState('');
-  const [selectedRacer, setSelectedRacer] = useState(null);
-  const [activeTab, setActiveTab] = useState('positions');
-  const [refreshInterval, setRefreshInterval] = useState(null);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showRacerSelector, setShowRacerSelector] = useState(false);
 
-  // Fetch race data
-  const fetchRaceData = useCallback(async () => {
-    if (!raceId) return;
-    
+  // React Router navigation hook
+  const navigate = useNavigate();
+
+  // Improved fetch function using axios
+  const fetchRacers = async () => {
     try {
-      setError('');
-      const [raceData, entriesData, eventsData] = await Promise.all([
-        raceAPI.getRaceById(raceId),
-        raceAPI.getRaceEntries(raceId),
-        raceAPI.getEvents(raceId)
-      ]);
+      console.log('Fetching racers...');
+      const token = localStorage.getItem('token');
+      console.log('Token exists:', !!token);
       
-      setRace(raceData);
-      setRaceEntries(entriesData.sort((a, b) => a.position - b.position));
-      setEvents(eventsData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-      
-    } catch (err) {
-      console.error('Error fetching race data:', err);
-      setError(err.message || 'Failed to load race data. Please try again.');
-    }
-  }, [raceId]);
-
-  // Initial data load
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      await fetchRaceData();
-      setLoading(false);
-    };
-    
-    loadData();
-  }, [fetchRaceData]);
-
-  // Set up auto-refresh for ongoing races
-  useEffect(() => {
-    if (race?.status === 'ongoing') {
-      const interval = setInterval(fetchRaceData, 5000); // Refresh every 5 seconds
-      setRefreshInterval(interval);
-      return () => clearInterval(interval);
-    } else if (refreshInterval) {
-      clearInterval(refreshInterval);
-      setRefreshInterval(null);
-    }
-  }, [race?.status, fetchRaceData, refreshInterval]);
-
-  // Action handlers with API calls
-  const handlePositionChange = useCallback(async (racerId, newPosition) => {
-    try {
-      setActionLoading(true);
-      setError('');
-      await raceAPI.updatePosition(raceId, racerId, newPosition);
-      await fetchRaceData(); // Refresh data after update
-    } catch (err) {
-      console.error('Error updating position:', err);
-      setError(err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  }, [raceId, fetchRaceData]);
-
-  const handleLapTime = useCallback(async (racerId, lapTime) => {
-    try {
-      setActionLoading(true);
-      setError('');
-      await raceAPI.markLap(raceId, racerId, lapTime);
-      await fetchRaceData(); // Refresh data after update
-    } catch (err) {
-      console.error('Error recording lap time:', err);
-      setError(err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  }, [raceId, fetchRaceData]);
-
-  const handlePitStop = useCallback(async (racerId, tyreType, pitTime) => {
-    try {
-      setActionLoading(true);
-      setError('');
-      await raceAPI.markPitStop(raceId, racerId, tyreType, pitTime);
-      await fetchRaceData(); // Refresh data after update
-    } catch (err) {
-      console.error('Error recording pit stop:', err);
-      setError(err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  }, [raceId, fetchRaceData]);
-
-  const handleDNF = useCallback(async (racerId) => {
-    try {
-      setActionLoading(true);
-      setError('');
-      await raceAPI.markDNF(raceId, racerId);
-      await fetchRaceData(); // Refresh data after update
-      // Clear selection if DNF driver was selected
-      if (selectedRacer === racerId) {
-        setSelectedRacer(null);
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
       }
+      
+      const racers = await getRacers();
+      
+      console.log('Response data:', racers);
+      
+      if (!Array.isArray(racers)) {
+        console.error('Invalid racers data format:', racers);
+        throw new Error('Invalid data format received from server. Expected an array of racers.');
+      }
+      
+      setAvailableRacers(racers);
+      
+      if (racers.length === 0) {
+        setError('No racers available. Please create some racers first before creating a race.');
+      }
+      
     } catch (err) {
-      console.error('Error marking DNF:', err);
-      setError(err.message);
+      console.error('Error fetching racers:', err);
+      
+      if (axios.isAxiosError(err)) {
+        if (err.response) {
+          // Server responded with error status
+          const status = err.response.status;
+          const errorData = err.response.data;
+          
+          if (status === 401) {
+            setError('Authentication failed. Please log in again.');
+          } else if (status === 403) {
+            setError('Access denied. You need proper permissions to view racers.');
+          } else if (status === 404) {
+            setError('Racers endpoint not found. Please check your API configuration.');
+          } else if (status >= 500) {
+            setError('Server error. Please try again later or contact support.');
+          } else {
+            setError(errorData?.msg || errorData?.message || errorData?.error || `Request failed with status ${status}`);
+          }
+        } else if (err.request) {
+          // Request was made but no response received
+          setError('Network error: Cannot connect to server. Please check your internet connection and that the API server is running.');
+        } else {
+          // Something else happened
+          setError(`Request setup error: ${err.message}`);
+        }
+      } else {
+        setError(err.message || 'Failed to load available racers. Please refresh the page and try again.');
+      }
     } finally {
-      setActionLoading(false);
+      setFetchingRacers(false);
     }
-  }, [raceId, fetchRaceData, selectedRacer]);
+  };
 
-  const handleStartRace = useCallback(async () => {
-    try {
-      setActionLoading(true);
-      setError('');
-      await raceAPI.startRace(raceId);
-      await fetchRaceData(); // Refresh data after update
-    } catch (err) {
-      console.error('Error starting race:', err);
-      setError(err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  }, [raceId, fetchRaceData]);
+  // Fetch available racers on component mount
+  useEffect(() => {
+    fetchRacers();
+  }, []);
 
-  const handleFinalizeRace = useCallback(async () => {
-    try {
-      setActionLoading(true);
-      setError('');
-      await raceAPI.finalizeRace(raceId);
-      await fetchRaceData(); // Refresh data after update
-    } catch (err) {
-      console.error('Error finalizing race:', err);
-      setError(err.message);
-    } finally {
-      setActionLoading(false);
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear any existing error when user starts typing
+    if (error) setError('');
+  };
+
+  const addRacerToGrid = (racer) => {
+    if (formData.startingGrid.find(r => r._id === racer._id)) {
+      return; // Racer already in grid
     }
-  }, [raceId, fetchRaceData]);
+    
+    setFormData(prev => ({
+      ...prev,
+      startingGrid: [...prev.startingGrid, racer]
+    }));
+  };
+
+  const removeRacerFromGrid = (racerId) => {
+    setFormData(prev => ({
+      ...prev,
+      startingGrid: prev.startingGrid.filter(r => r._id !== racerId)
+    }));
+  };
+
+  const moveRacerPosition = (racerId, direction) => {
+    const currentIndex = formData.startingGrid.findIndex(r => r._id === racerId);
+    if (currentIndex === -1) return;
+
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= formData.startingGrid.length) return;
+
+    const newGrid = [...formData.startingGrid];
+    [newGrid[currentIndex], newGrid[newIndex]] = [newGrid[newIndex], newGrid[currentIndex]];
+    
+    setFormData(prev => ({
+      ...prev,
+      startingGrid: newGrid
+    }));
+  };
+
+  const validateForm = () => {
+    if (!formData.venue.trim()) {
+      throw new Error('Race venue is required');
+    }
+    
+    if (!formData.totalLaps || parseInt(formData.totalLaps) < 1) {
+      throw new Error('Total laps must be at least 1');
+    }
+    
+    if (parseInt(formData.totalLaps) > 200) {
+      throw new Error('Total laps cannot exceed 200');
+    }
+    
+    if (formData.startingGrid.length < 2) {
+      throw new Error('At least 2 racers are required for a race');
+    }
+    
+    if (formData.startingGrid.length > 30) {
+      throw new Error('Maximum 30 racers allowed per race');
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    try {
+      setLoading(true);
+      setError('');
+      setSuccess('');
+      
+      // Validate data
+      validateForm();
+      
+      // Prepare submission data
+      const submitData = {
+        venue: formData.venue.trim(),
+        totalLaps: parseInt(formData.totalLaps),
+        defaultTyreType: formData.defaultTyreType,
+        startingGrid: formData.startingGrid.map(racer => racer._id)
+      };
+      
+      console.log('Submitting race data:', submitData);
+      
+      // Use the API service function
+      const result = await createRace(submitData);
+      
+      console.log('Race created successfully:', result);
+      setSuccess('Race created successfully! Redirecting to Race Control...');
+      
+      // Navigate to race control page after a brief delay
+      // The race ID should be in result.race._id or result._id depending on your API response
+      const raceId = result.race?._id || result._id || result.id;
+      
+      console.log('Extracted race ID for navigation:', raceId);
+      console.log('Full result object:', result);
+      
+      if (!raceId) {
+        console.error('No race ID found in response:', result);
+        setError('Race created but navigation failed: No race ID returned from server');
+        return;
+      }
+      
+      setTimeout(() => {
+        console.log('Attempting navigation to:', `/admin/race-control/${raceId}`);
+        try {
+          navigate(`/admin/race-control/${raceId}`);
+          console.log('Navigation call completed');
+        } catch (navError) {
+          console.error('Navigation error:', navError);
+          setError('Race created successfully, but navigation failed. Please manually navigate to race control.');
+        }
+      }, 2000);
+      
+    } catch (err) {
+      console.error('Error creating race:', err);
+      
+      // Handle different error formats
+      let errorMessage = 'An unexpected error occurred while creating the race';
+      
+      if (axios.isAxiosError(err)) {
+        if (err.response?.data) {
+          errorMessage = err.response.data.msg || err.response.data.message || err.response.data.error || errorMessage;
+        } else if (err.request) {
+          errorMessage = 'Network error: Cannot connect to server. Please check your connection.';
+        } else {
+          errorMessage = `Request error: ${err.message}`;
+        }
+      } else if (err.msg || err.message) {
+        errorMessage = err.msg || err.message;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredRacers = availableRacers.filter(racer =>
+    racer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    racer.team?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    racer.racingNumber.toString().includes(searchTerm)
+  );
 
   const getTyreColor = (tyreType) => {
     switch (tyreType) {
       case 'soft': return 'bg-red-500';
-      case 'medium': return 'bg-yellow-500'; 
+      case 'medium': return 'bg-yellow-500';
       case 'hard': return 'bg-gray-500';
       default: return 'bg-gray-300';
     }
   };
 
-  const formatTime = (seconds) => {
-    if (!seconds) return '--:--:---';
-    const mins = Math.floor(seconds / 60);
-    const secs = (seconds % 60).toFixed(3);
-    return `${mins}:${secs.padStart(6, '0')}`;
+  const handleRetry = () => {
+    setError('');
+    setFetchingRacers(true);
+    fetchRacers();
   };
 
-  const formatRelativeTime = (dateString) => {
-    const now = new Date();
-    const eventTime = new Date(dateString);
-    const diffMs = now - eventTime;
-    const diffMins = Math.floor(diffMs / 60000);
+  const handleDebug = () => {
+    console.log('=== DEBUG INFO ===');
+    console.log('- Token:', localStorage.getItem('token') ? 'Present' : 'Missing');
+    console.log('- Available racers:', availableRacers.length);
+    console.log('- Error:', error);
+    console.log('- Fetching state:', fetchingRacers);
+    console.log('- Current URL:', window.location.href);
+    console.log('- API Base URL:', process.env.REACT_APP_API_URL || 'http://localhost:5000');
+    console.log('- Full racers endpoint:', `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/racers`);
+    console.log('- Full create race endpoint:', `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/races/create`);
     
-    if (diffMins < 1) return 'Now';
-    if (diffMins === 1) return '1 min ago';
-    if (diffMins < 60) return `${diffMins} mins ago`;
-    
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours === 1) return '1 hour ago';
-    return `${diffHours} hours ago`;
-  };
+    // Test if we can reach the server at all
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    const testApi = axios.create({
+      baseURL: API_URL,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-  const getEventDescription = (event) => {
-    const racer = raceEntries.find(entry => entry.racer._id === event.data.racerId);
-    const racerName = racer?.racer.name || 'Unknown Driver';
-    
-    switch (event.type) {
-      case 'lap_completed':
-        return `${racerName} completed lap: ${formatTime(event.data.lapTime)}`;
-      case 'pit_stop':
-        return `${racerName} pit stop: ${event.data.tyreType} tyres (${event.data.pitTime}s)`;
-      case 'position_change':
-        return `${racerName} position change: P${event.data.oldPosition} → P${event.data.newPosition}`;
-      case 'dnf':
-        return `${racerName} retired from race`;
-      case 'race_completed':
-        return 'Race completed';
-      case 'race_created':
-        return `Race created at ${event.data.venue}`;
-      default:
-        return 'Unknown event';
+    // Add token for test requests
+    const token = localStorage.getItem('token');
+    if (token) {
+      testApi.defaults.headers.Authorization = `Bearer ${token}`;
     }
-  };
 
-  // Calculate race statistics
-  const getRaceStats = () => {
-    const activeDrivers = raceEntries.filter(entry => entry.status === 'active').length;
-    const dnfDrivers = raceEntries.filter(entry => entry.status === 'DNF').length;
-    const totalLaps = race?.totalLaps || 0;
+    testApi.get('/api/health').then(response => {
+      console.log('- Health check status:', response.status);
+      console.log('- Health check data:', response.data);
+    }).catch(err => {
+      console.log('- Health check failed:', err.message);
+      if (axios.isAxiosError(err) && err.response) {
+        console.log('- Health check error response:', err.response.status, err.response.data);
+      }
+    });
     
-    // Calculate current lap from lap completion events
-    const lapEvents = events.filter(e => e.type === 'lap_completed');
-    const currentLap = lapEvents.length > 0 ? Math.min(Math.floor(lapEvents.length / raceEntries.length) + 1, totalLaps) : 1;
+    // Test racers endpoint specifically
+    testApi.get('/api/racers').then(response => {
+      console.log('- Direct racers test status:', response.status);
+      console.log('- Direct racers test data length:', response.data?.length);
+    }).catch(err => {
+      console.log('- Direct racers test failed:', err.message);
+      if (axios.isAxiosError(err) && err.response) {
+        console.log('- Direct racers test error response:', err.response.status, err.response.data);
+      }
+    });
     
-    return {
-      activeDrivers,
-      dnfDrivers,
-      currentLap,
-      totalLaps,
-      progress: totalLaps > 0 ? Math.round((currentLap / totalLaps) * 100) : 0
-    };
+    alert('Debug info logged to console. Press F12 to view detailed information including API endpoint tests.');
   };
 
-  // Validate lap time input
-  const validateLapTime = (time) => {
-    const lapTime = parseFloat(time);
-    if (isNaN(lapTime) || lapTime <= 0 || lapTime > 300) {
-      throw new Error('Lap time must be between 0.1 and 300 seconds');
-    }
-    return lapTime;
-  };
-
-  // Validate position input
-  const validatePosition = (position) => {
-    const pos = parseInt(position);
-    if (isNaN(pos) || pos < 1 || pos > raceEntries.length) {
-      throw new Error(`Position must be between 1 and ${raceEntries.length}`);
-    }
-    return pos;
-  };
-
-  // Validate pit time input
-  const validatePitTime = (time) => {
-    const pitTime = parseFloat(time);
-    if (isNaN(pitTime) || pitTime <= 0 || pitTime > 60) {
-      throw new Error('Pit time must be between 0.1 and 60 seconds');
-    }
-    return pitTime;
-  };
-
-  if (loading) {
+  if (fetchingRacers) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <span className="mt-4 block text-gray-600">Loading race data...</span>
+          <span className="mt-4 block text-gray-600">Loading racers...</span>
         </div>
       </div>
     );
   }
-
-  if (!race) {
-    return (
-      <div className="p-6">
-        <div className="text-center text-gray-500">
-          <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-          <h2 className="text-xl font-semibold mb-2">Race Not Found</h2>
-          <p className="mb-4">The requested race could not be found.</p>
-          <button 
-            onClick={() => navigate('/admin/dashboard')}
-            className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600"
-          >
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const stats = getRaceStats();
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      {/* Error Banner */}
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 relative">
-          <span className="block sm:inline">{error}</span>
-          <button 
-            onClick={() => setError('')}
-            className="absolute top-0 bottom-0 right-0 px-4 py-3"
-          >
-            <span className="sr-only">Dismiss</span>
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Trophy className="h-8 w-8 text-yellow-500" />
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{race.venue}</h1>
-              <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
-                <div className="flex items-center">
-                  <Flag className="h-4 w-4 mr-1" />
-                  Lap {stats.currentLap} / {stats.totalLaps}
-                </div>
-                <div className="flex items-center">
-                  <Users className="h-4 w-4 mr-1" />
-                  {stats.activeDrivers} Active
-                </div>
-                {stats.dnfDrivers > 0 && (
-                  <div className="flex items-center">
-                    <AlertTriangle className="h-4 w-4 mr-1" />
-                    {stats.dnfDrivers} DNF
-                  </div>
-                )}
-                <div className="flex items-center">
-                  <Clock className="h-4 w-4 mr-1" />
-                  {refreshInterval ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
-                </div>
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Flag className="h-8 w-8 text-blue-500" />
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Create New Race</h1>
+                <p className="text-gray-600 mt-1">Set up a new racing event with participants</p>
               </div>
             </div>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-              race.status === 'ongoing' ? 'bg-green-100 text-green-800' :
-              race.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-              'bg-gray-100 text-gray-800'
-            }`}>
-              {race.status?.toUpperCase()}
-            </div>
-            
-            {race.status === 'pending' && (
-              <button 
-                onClick={handleStartRace}
-                disabled={actionLoading}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-green-700 disabled:opacity-50"
-              >
-                <Play className="h-4 w-4 mr-2" />
-                Start Race
-              </button>
-            )}
-            
-            {race.status === 'ongoing' && (
-              <button 
-                onClick={() => {
-                  if (confirm('Are you sure you want to finalize this race? This action cannot be undone.')) {
-                    handleFinalizeRace();
-                  }
-                }}
-                disabled={actionLoading}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-red-700 disabled:opacity-50"
-              >
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Finalize Race
-              </button>
-            )}
-            
-            <button 
+            <button
               onClick={() => navigate('/admin/dashboard')}
-              className="bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-gray-700"
+              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center"
             >
-              <Settings className="h-4 w-4 mr-2" />
-              Back
+              <X className="h-4 w-4 mr-2" />
+              Cancel
             </button>
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-12 gap-6">
-        {/* Main Control Panel */}
-        <div className="col-span-8">
-          {/* Tab Navigation */}
-          <div className="bg-white rounded-lg shadow-sm mb-6">
-            <div className="border-b">
-              <nav className="flex space-x-8 px-6">
-                {[
-                  { key: 'positions', label: 'Live Positions', icon: Target },
-                  { key: 'timing', label: 'Timing & Scoring', icon: Timer },
-                  { key: 'events', label: 'Race Events', icon: Flag }
-                ].map(tab => (
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
+            <div className="flex items-start">
+              <AlertTriangle className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span>{error}</span>
+                <div className="mt-3 flex space-x-2">
                   <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center ${
-                      activeTab === tab.key
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
+                    onClick={handleRetry}
+                    className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
                   >
-                    <tab.icon className="h-4 w-4 mr-2" />
-                    {tab.label}
+                    Retry
                   </button>
-                ))}
-              </nav>
-            </div>
-
-            <div className="p-6">
-              {activeTab === 'positions' && (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-semibold">Live Race Positions</h3>
-                    <button 
-                      onClick={fetchRaceData}
-                      disabled={loading}
-                      className="text-sm text-blue-600 hover:text-blue-800 flex items-center disabled:opacity-50"
-                    >
-                      <RotateCcw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                      Refresh
-                    </button>
-                  </div>
-                  
-                  {raceEntries.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <Car className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p>No drivers in this race</p>
-                    </div>
-                  ) : (
-                    raceEntries.map((entry) => (
-                      <div
-                        key={entry._id}
-                        className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all cursor-pointer ${
-                          selectedRacer === entry.racer._id 
-                            ? 'border-blue-500 bg-blue-50' 
-                            : entry.status === 'DNF' 
-                              ? 'border-red-200 bg-red-50' 
-                              : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                        onClick={() => setSelectedRacer(entry.racer._id)}
-                      >
-                        <div className="flex items-center space-x-4">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-                            entry.position === 1 ? 'bg-yellow-500' :
-                            entry.position === 2 ? 'bg-gray-400' :
-                            entry.position === 3 ? 'bg-amber-600' :
-                            'bg-gray-600'
-                          }`}>
-                            {entry.position}
-                          </div>
-                          
-                          <div className="flex items-center space-x-3">
-                            <span className="bg-gray-800 text-white px-2 py-1 rounded text-sm font-mono">
-                              {entry.racer.racingNumber}
-                            </span>
-                            <div>
-                              <div className="font-semibold">{entry.racer.name}</div>
-                              <div className="text-sm text-gray-600">{entry.racer.team?.name || 'No Team'}</div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-2">
-                            <div className={`w-4 h-4 rounded-full ${getTyreColor(entry.tyreType)}`}></div>
-                            <span className="text-sm capitalize">{entry.tyreType}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center space-x-6">
-                          <div className="text-right">
-                            <div className="text-sm text-gray-600">Status</div>
-                            <div className={`font-semibold ${entry.status === 'DNF' ? 'text-red-600' : 'text-green-600'}`}>
-                              {entry.status === 'DNF' ? 'DNF' : 'ACTIVE'}
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-1">
-                            {entry.status === 'DNF' && (
-                              <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">DNF</span>
-                            )}
-                            {entry.status === 'active' && (
-                              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                  <button
+                    onClick={handleDebug}
+                    className="bg-gray-600 text-white px-3 py-1 rounded text-sm hover:bg-gray-700"
+                  >
+                    Debug Info
+                  </button>
                 </div>
-              )}
-
-              {activeTab === 'timing' && (
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Timing & Scoring</h3>
-                  {raceEntries.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <Timer className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p>No timing data available</p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-3">Pos</th>
-                            <th className="text-left p-3">No.</th>
-                            <th className="text-left p-3">Driver</th>
-                            <th className="text-left p-3">Team</th>
-                            <th className="text-left p-3">Tyres</th>
-                            <th className="text-left p-3">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {raceEntries.map(entry => (
-                            <tr key={entry._id} className="border-b hover:bg-gray-50">
-                              <td className="p-3 font-semibold">{entry.position}</td>
-                              <td className="p-3">
-                                <span className="bg-gray-800 text-white px-2 py-1 rounded text-xs font-mono">
-                                  {entry.racer.racingNumber}
-                                </span>
-                              </td>
-                              <td className="p-3 font-medium">{entry.racer.name}</td>
-                              <td className="p-3">{entry.racer.team?.name || 'No Team'}</td>
-                              <td className="p-3">
-                                <div className="flex items-center space-x-2">
-                                  <div className={`w-3 h-3 rounded-full ${getTyreColor(entry.tyreType)}`}></div>
-                                  <span className="capitalize">{entry.tyreType}</span>
-                                </div>
-                              </td>
-                              <td className="p-3">
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                  entry.status === 'DNF' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                                }`}>
-                                  {entry.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'events' && (
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Race Events ({events.length})</h3>
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {events.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <Flag className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                        <p>No events recorded yet</p>
-                      </div>
-                    ) : (
-                      events.map(event => (
-                        <div key={event._id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                          <div className="text-xs text-gray-500 w-20 flex-shrink-0">
-                            {formatRelativeTime(event.createdAt)}
-                          </div>
-                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                            event.type === 'lap_completed' ? 'bg-blue-500' :
-                            event.type === 'pit_stop' ? 'bg-orange-500' :
-                            event.type === 'position_change' ? 'bg-green-500' :
-                            event.type === 'dnf' ? 'bg-red-500' :
-                            event.type === 'race_completed' ? 'bg-purple-500' :
-                            'bg-gray-500'
-                          }`}></div>
-                          <div className="flex-1 text-sm">
-                            {getEventDescription(event)}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
+              </div>
+              <button 
+                onClick={() => setError('')}
+                className="ml-2 text-red-500 hover:text-red-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Action Panel */}
-        <div className="col-span-4">
+        {success && (
+          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-center">
+            <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+            <span>{success}</span>
+          </div>
+        )}
+
+        <div className="space-y-6">
+          {/* Race Details */}
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h3 className="text-lg font-semibold mb-4">Race Actions</h3>
+            <h2 className="text-xl font-semibold mb-4 flex items-center">
+              <Settings className="h-5 w-5 mr-2" />
+              Race Details
+            </h2>
             
-            {selectedRacer ? (
-              <div className="space-y-4">
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <div className="text-sm text-blue-600">Selected Driver</div>
-                  <div className="font-semibold">
-                    {raceEntries.find(r => r.racer._id === selectedRacer)?.racer.name}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    #{raceEntries.find(r => r.racer._id === selectedRacer)?.racer.racingNumber} - 
-                    {raceEntries.find(r => r.racer._id === selectedRacer)?.racer.team?.name || 'No Team'}
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Race Venue *
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="text"
+                    name="venue"
+                    value={formData.venue}
+                    onChange={handleInputChange}
+                    placeholder="e.g., Monaco Grand Prix Circuit"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
                 </div>
+              </div>
 
-                {race.status === 'ongoing' && (
-                  <div className="space-y-3">
-                    <button 
-                      onClick={() => {
-                        const lapTimeStr = prompt('Enter lap time (seconds):');
-                        if (lapTimeStr) {
-                          try {
-                            const lapTime = validateLapTime(lapTimeStr);
-                            handleLapTime(selectedRacer, lapTime);
-                          } catch (err) {
-                            alert(err.message);
-                          }
-                        }
-                      }}
-                      disabled={actionLoading}
-                      className="w-full flex items-center justify-center space-x-2 bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      <Timer className="h-4 w-4" />
-                      <span>Record Lap Time</span>
-                    </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Total Laps *
+                </label>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="number"
+                    name="totalLaps"
+                    value={formData.totalLaps}
+                    onChange={handleInputChange}
+                    placeholder="e.g., 50"
+                    min="1"
+                    max="200"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+              </div>
 
-                    <button 
-                      onClick={() => {
-                        const newPosStr = prompt(`Enter new position (1-${raceEntries.length}):`);
-                        if (newPosStr) {
-                          try {
-                            const newPos = validatePosition(newPosStr);
-                            handlePositionChange(selectedRacer, newPos);
-                          } catch (err) {
-                            alert(err.message);
-                          }
-                        }
-                      }}
-                      disabled={actionLoading}
-                      className="w-full flex items-center justify-center space-x-2 bg-green-600 text-white p-3 rounded-lg hover:bg-green-700 disabled:opacity-50"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                      <span>Update Position</span>
-                    </button>
-
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium text-gray-700">Pit Stop Options</div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {['soft', 'medium', 'hard'].map(tyre => (
-                          <button
-                            key={tyre}
-                            onClick={() => {
-                              const pitTimeStr = prompt(`Enter pit time for ${tyre} tyres (seconds):`);
-                              if (pitTimeStr) {
-                                try {
-                                  const pitTime = validatePitTime(pitTimeStr);
-                                  handlePitStop(selectedRacer, tyre, pitTime);
-                                } catch (err) {
-                                  alert(err.message);
-                                }
-                              }
-                            }}
-                            disabled={actionLoading}
-                            className={`flex items-center justify-center space-x-1 p-2 rounded text-white text-sm disabled:opacity-50 ${
-                              tyre === 'soft' ? 'bg-red-500 hover:bg-red-600' :
-                              tyre === 'medium' ? 'bg-yellow-500 hover:bg-yellow-600' :
-                              'bg-gray-500 hover:bg-gray-600'
-                            }`}
-                          >
-                            <div className={`w-3 h-3 rounded-full ${getTyreColor(tyre)}`}></div>
-                            <span className="capitalize">{tyre}</span>
-                          </button>
-                        ))}
-                      </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Default Tyre Compound
+                </label>
+                <div className="relative">
+                  <Zap className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <select
+                    name="defaultTyreType"
+                    value={formData.defaultTyreType}
+                    onChange={handleInputChange}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none"
+                  >
+                    <option value="soft">Soft (Red) - Fast, Low Durability</option>
+                    <option value="medium">Medium (Yellow) - Balanced</option>
+                    <option value="hard">Hard (White) - Slow, High Durability</option>
+                  </select>
+                </div>
+                <div className="mt-2 flex items-center space-x-4">
+                  {['soft', 'medium', 'hard'].map(tyre => (
+                    <div key={tyre} className="flex items-center space-x-2">
+                      <div className={`w-3 h-3 rounded-full ${getTyreColor(tyre)}`}></div>
+                      <span className="text-sm capitalize text-gray-600">{tyre}</span>
                     </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
 
-                    {raceEntries.find(r => r.racer._id === selectedRacer)?.status !== 'DNF' && (
-                      <button 
-                        onClick={() => {
-                          const racerName = raceEntries.find(r => r.racer._id === selectedRacer)?.racer.name;
-                          if (confirm(`Mark ${racerName} as DNF (Did Not Finish)?`)) {
-                            handleDNF(selectedRacer);
-                          }
-                        }}
-                        disabled={actionLoading}
-                        className="w-full flex items-center justify-center space-x-2 bg-red-600 text-white p-3 rounded-lg hover:bg-red-700 disabled:opacity-50"
-                      >
-                        <Ban className="h-4 w-4" />
-                        <span>Mark DNF</span>
-                      </button>
-                    )}
+          {/* Starting Grid */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                Starting Grid ({formData.startingGrid.length} racers)
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowRacerSelector(!showRacerSelector)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Racers
+              </button>
+            </div>
 
-                    {raceEntries.find(r => r.racer._id === selectedRacer)?.status === 'DNF' && (
-                      <div className="p-3 bg-red-100 rounded-lg">
-                        <div className="text-sm text-red-600 font-medium">Driver is DNF</div>
-                        <div className="text-sm text-red-500">No actions available</div>
-                      </div>
-                    )}
+            {/* Racer Selector */}
+            {showRacerSelector && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    placeholder="Search racers by name, team, or number..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                {filteredRacers.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Car className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                    <p>{searchTerm ? 'No racers found matching your search' : 'No racers available'}</p>
                   </div>
-                )}
-
-                {race.status === 'pending' && (
-                  <div className="p-3 bg-yellow-100 rounded-lg">
-                    <div className="text-sm text-yellow-600 font-medium">Race Not Started</div>
-                    <div className="text-sm text-yellow-500">Start the race to enable driver actions</div>
-                  </div>
-                )}
-
-                {race.status === 'completed' && (
-                  <div className="p-3 bg-gray-100 rounded-lg">
-                    <div className="text-sm text-gray-600 font-medium">Race Completed</div>
-                    <div className="text-sm text-gray-500">No actions available</div>
-                  </div>
-                )}
-
-                {actionLoading && (
-                  <div className="flex items-center justify-center py-4">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                    <span className="ml-2 text-sm text-gray-600">Processing...</span>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto">
+                    {filteredRacers.map(racer => {
+                      const isSelected = formData.startingGrid.find(r => r._id === racer._id);
+                      return (
+                        <button
+                          key={racer._id}
+                          type="button"
+                          onClick={() => addRacerToGrid(racer)}
+                          disabled={isSelected}
+                          className={`flex items-center space-x-3 p-3 rounded-lg border-2 text-left transition-all ${
+                            isSelected 
+                              ? 'border-green-300 bg-green-50 text-green-700 cursor-not-allowed' 
+                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                          }`}
+                        >
+                          <span className="bg-gray-800 text-white px-2 py-1 rounded text-sm font-mono">
+                            {racer.racingNumber}
+                          </span>
+                          <div>
+                            <div className="font-semibold">{racer.name}</div>
+                            <div className="text-sm text-gray-600">{racer.team?.name || 'No Team'}</div>
+                          </div>
+                          {isSelected && (
+                            <CheckCircle className="h-5 w-5 text-green-500 ml-auto" />
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Current Starting Grid */}
+            {formData.startingGrid.length === 0 ? (
+              <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
+                <Users className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                <p className="text-lg font-medium">No racers selected</p>
+                <p className="text-sm">Add at least 2 racers to create a race</p>
+              </div>
             ) : (
-              <div className="text-center text-gray-500 py-8">
-                <Car className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                <p className="text-sm">Select a driver from the positions list to manage race actions</p>
-                {raceEntries.length === 0 && (
-                  <p className="text-xs mt-2">No drivers available in this race</p>
-                )}
+              <div className="space-y-3">
+                {formData.startingGrid.map((racer, index) => (
+                  <div
+                    key={racer._id}
+                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
+                        index === 0 ? 'bg-yellow-500' :
+                        index === 1 ? 'bg-gray-400' :
+                        index === 2 ? 'bg-amber-600' :
+                        'bg-gray-600'
+                      }`}>
+                        {index + 1}
+                      </div>
+                      
+                      <span className="bg-gray-800 text-white px-2 py-1 rounded text-sm font-mono">
+                        {racer.racingNumber}
+                      </span>
+                      
+                      <div>
+                        <div className="font-semibold">{racer.name}</div>
+                        <div className="text-sm text-gray-600">{racer.team?.name || 'No Team'}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => moveRacerPosition(racer._id, 'up')}
+                        disabled={index === 0}
+                        className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Move up"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveRacerPosition(racer._id, 'down')}
+                        disabled={index === formData.startingGrid.length - 1}
+                        className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Move down"
+                      >
+                        ▼
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeRacerFromGrid(racer._id)}
+                        className="p-1 text-red-400 hover:text-red-600"
+                        title="Remove from grid"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* Quick Stats */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
-            <h3 className="text-lg font-semibold mb-4">Race Statistics</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Venue</span>
-                <span className="font-semibold">{race.venue}</span>
+          {/* Submit Button */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                {formData.startingGrid.length < 2 && (
+                  <p className="flex items-center text-amber-600">
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    At least 2 racers required to create a race
+                  </p>
+                )}
+                {formData.startingGrid.length >= 2 && (
+                  <p className="flex items-center text-green-600">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Ready to create race with {formData.startingGrid.length} racers
+                  </p>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Total Laps</span>
-                <span className="font-semibold">{stats.totalLaps}</span>
+              
+              <div className="flex space-x-3">
+                {/* Test Navigation Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    console.log('Testing navigation...');
+                    try {
+                      navigate('/admin/race-control/test-id');
+                      console.log('Test navigation completed');
+                    } catch (error) {
+                      console.error('Test navigation failed:', error);
+                      alert('Navigation test failed - check console');
+                    }
+                  }}
+                  className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 flex items-center text-sm"
+                >
+                  Test Nav
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => navigate('/admin/dashboard')}
+                  className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-600 flex items-center"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={loading || formData.startingGrid.length < 2}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Creating Race...
+                    </>
+                  ) : (
+                    <>
+                      <Flag className="h-4 w-4 mr-2" />
+                      Create Race
+                    </>
+                  )}
+                </button>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Current Lap</span>
-                <span className="font-semibold">{stats.currentLap}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Total Drivers</span>
-                <span className="font-semibold">{raceEntries.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Active Drivers</span>
-                <span className="font-semibold text-green-600">{stats.activeDrivers}</span>
-              </div>
-              {stats.dnfDrivers > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">DNF</span>
-                  <span className="font-semibold text-red-600">{stats.dnfDrivers}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-gray-600">Progress</span>
-                <span className="font-semibold">{stats.progress}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Total Events</span>
-                <span className="font-semibold">{events.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Created</span>
-                <span className="font-semibold text-xs">
-                  {new Date(race.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-            </div>
-
-            {/* Race Progress Bar */}
-            <div className="mt-4">
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Race Progress</span>
-                <span>{stats.progress}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${stats.progress}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Race Status Card */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
-            <h3 className="text-lg font-semibold mb-4">Race Status</h3>
-            <div className="space-y-3">
-              <div className={`p-3 rounded-lg ${
-                race.status === 'ongoing' ? 'bg-green-50' :
-                race.status === 'pending' ? 'bg-yellow-50' :
-                'bg-gray-50'
-              }`}>
-                <div className={`font-semibold ${
-                  race.status === 'ongoing' ? 'text-green-800' :
-                  race.status === 'pending' ? 'text-yellow-800' :
-                  'text-gray-800'
-                }`}>
-                  {race.status === 'ongoing' ? '🏁 Race in Progress' :
-                   race.status === 'pending' ? '⏳ Waiting to Start' :
-                   '🏆 Race Completed'}
-                </div>
-                <div className={`text-sm ${
-                  race.status === 'ongoing' ? 'text-green-600' :
-                  race.status === 'pending' ? 'text-yellow-600' :
-                  'text-gray-600'
-                }`}>
-                  {race.status === 'ongoing' ? 'Live race management active' :
-                   race.status === 'pending' ? 'Ready to start racing' :
-                   'Final results recorded'}
-                </div>
-              </div>
-
-              {refreshInterval && (
-                <div className="flex items-center space-x-2 text-sm text-blue-600">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  <span>Auto-refreshing every 5 seconds</span>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -958,4 +685,4 @@ const RaceControl = () => {
   );
 };
 
-export default RaceControl;
+export default RaceCreate;
