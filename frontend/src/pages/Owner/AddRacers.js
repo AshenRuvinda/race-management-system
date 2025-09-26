@@ -11,9 +11,11 @@ const AddRacers = () => {
   const [profilePicture, setProfilePicture] = useState('');
   const [teamId, setTeamId] = useState('');
   const [teams, setTeams] = useState([]);
+  const [allTeams, setAllTeams] = useState([]); // For debugging
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [debugInfo, setDebugInfo] = useState(''); // For debugging
   const navigate = useNavigate();
   const userId = localStorage.getItem('userId');
 
@@ -21,26 +23,71 @@ const AddRacers = () => {
     const fetchTeams = async () => {
       try {
         setError('');
+        setDebugInfo('Fetching teams...');
+        
         const teamData = await getTeams();
+        setAllTeams(teamData); // Store all teams for debugging
+        
         console.log('All teams:', teamData);
         console.log('Current user ID:', userId);
+        console.log('User ID type:', typeof userId);
         
-        // Filter teams owned by current user
+        if (!teamData || teamData.length === 0) {
+          setError('No teams found in the system. Please contact administrator.');
+          setDebugInfo('No teams returned from API');
+          return;
+        }
+        
+        // More detailed debugging
+        const debugTeamInfo = teamData.map(team => ({
+          teamName: team.name,
+          teamId: team._id,
+          ownerId: team.owner._id || team.owner,
+          ownerType: typeof (team.owner._id || team.owner),
+          ownerData: team.owner,
+          matches: (team.owner._id || team.owner) === userId,
+          matchesString: (team.owner._id || team.owner).toString() === userId.toString()
+        }));
+        
+        console.log('Team debug info:', debugTeamInfo);
+        
+        // Try both direct comparison and string comparison
         const userTeams = teamData.filter(team => {
           const ownerId = team.owner._id || team.owner;
-          console.log('Team:', team.name, 'Owner ID:', ownerId, 'Match:', ownerId === userId);
-          return ownerId === userId;
+          return ownerId === userId || ownerId.toString() === userId.toString();
         });
         
-        console.log('User teams:', userTeams);
+        console.log('Filtered user teams:', userTeams);
         setTeams(userTeams);
         
         if (userTeams.length === 0) {
-          setError('No teams found. Please register a team first.');
+          // Provide more detailed debug information
+          const teamOwners = teamData.map(team => ({
+            name: team.name,
+            owner: team.owner,
+            ownerId: team.owner._id || team.owner
+          }));
+          
+          setDebugInfo(`
+            Debug Info:
+            - Your User ID: ${userId}
+            - Total teams: ${teamData.length}
+            - Team owners: ${JSON.stringify(teamOwners, null, 2)}
+            - User teams found: ${userTeams.length}
+          `);
+          
+          setError('No teams found for your account. Please register a team first.');
+        } else {
+          setDebugInfo(`
+            Found ${userTeams.length} team(s) for your account:
+            ${userTeams.map(team => `- ${team.name} (${team.country}) - ID: ${team._id}`).join('\n            ')}
+          `);
         }
+        
       } catch (err) {
         console.error('Error fetching teams:', err);
-        setError('Failed to load teams. Please try again.');
+        setError(`Failed to load teams: ${err.message || 'Please try again.'}`);
+        setDebugInfo(`API Error: ${err.message}`);
       }
     };
 
@@ -48,6 +95,7 @@ const AddRacers = () => {
       fetchTeams();
     } else {
       setError('Authentication required. Please login again.');
+      setDebugInfo('No user ID found in localStorage');
     }
   }, [userId]);
 
@@ -131,18 +179,26 @@ const AddRacers = () => {
           </div>
         )}
 
-        {teams.length === 0 && !error ? (
+        {teams.length === 0 && !loading ? (
           <div className="text-center py-8">
             <div className="text-gray-500 mb-4">
               <h2 className="text-xl mb-2">No Teams Available</h2>
               <p>You need to register a team before adding racers.</p>
             </div>
-            <button
-              onClick={() => navigate('/owner/team-register')}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Register Team
-            </button>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => navigate('/owner/team-register')}
+                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              >
+                Register Team
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+              >
+                Refresh Page
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
