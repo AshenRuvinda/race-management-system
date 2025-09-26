@@ -11,7 +11,6 @@ import OwnerDashboard from './pages/Owner/OwnerDashboard';
 import TeamRegister from './pages/Owner/TeamRegister';
 import AddRacers from './pages/Owner/AddRacers';
 import LiveRace from './pages/Viewer/LiveRace';
-import './index.css';
 
 function App() {
   return (
