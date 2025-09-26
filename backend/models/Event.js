@@ -10,7 +10,8 @@ const eventSchema = new mongoose.Schema({
       'pit_stop', 
       'dnf', 
       'race_completed', 
-      'race_created'  // Added this missing enum value
+      'race_created',
+      'race_started'  // Added new event type
     ], 
     required: true 
   },

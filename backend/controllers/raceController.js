@@ -492,3 +492,73 @@ exports.finalizeRace = async (req, res) => {
     });
   }
 };
+
+// Add this to your raceController.js file
+
+exports.startRace = async (req, res) => {
+  const { raceId } = req.body;
+  
+  try {
+    console.log('Starting race:', raceId);
+    
+    if (!raceId) {
+      return res.status(400).json({ msg: 'Race ID is required' });
+    }
+
+    const race = await Race.findById(raceId);
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found' });
+    }
+
+    if (race.status !== 'pending') {
+      return res.status(400).json({ 
+        msg: `Race cannot be started. Current status: ${race.status}` 
+      });
+    }
+
+    // Check if race has entries
+    const raceEntries = await RaceEntry.find({ race: raceId });
+    if (raceEntries.length === 0) {
+      return res.status(400).json({ 
+        msg: 'Cannot start race with no participants' 
+      });
+    }
+
+    // Update race status to ongoing
+    race.status = 'ongoing';
+    await race.save();
+
+    // Create race start event
+    const event = new Event({
+      race: raceId,
+      type: 'race_started',
+      data: { 
+        startedAt: new Date(),
+        participantCount: raceEntries.length
+      },
+    });
+    await event.save();
+
+    // Emit socket event if available
+    if (req.io) {
+      req.io.emit('raceUpdate', { raceId, event });
+    }
+
+    console.log('Race started successfully:', raceId);
+    res.json({
+      success: true,
+      race,
+      message: 'Race started successfully'
+    });
+  } catch (err) {
+    console.error('Start race error:', {
+      raceId,
+      message: err.message,
+      stack: err.stack
+    });
+    res.status(500).json({ 
+      msg: 'Server error while starting race',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+  }
+};

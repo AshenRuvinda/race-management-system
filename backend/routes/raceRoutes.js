@@ -7,6 +7,7 @@ const {
   markPitStop, 
   markDNF, 
   finalizeRace,
+  startRace,  // Add this import
   getRaces,
   getRaceById,
   getRaceEntries 
@@ -24,6 +25,7 @@ router.get('/:raceId/entries', getRaceEntries);
 
 // Admin only routes
 router.post('/create', authMiddleware(['admin']), createRace);
+router.post('/start', authMiddleware(['admin']), startRace);  // Add this route
 router.post('/position', authMiddleware(['admin']), updatePosition);
 router.post('/lap', authMiddleware(['admin']), markLap);
 router.post('/pitstop', authMiddleware(['admin']), markPitStop);
