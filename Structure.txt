@@ -1,0 +1,221 @@
+race-management-system/
+├── backend/
+│   ├── config/
+│   │   ├── db.js                # MongoDB connection
+│   │   └── socket.js            # Socket.IO setup
+│   │
+│   ├── controllers/             # Business logic
+│   │   ├── authController.js
+│   │   ├── teamController.js
+│   │   ├── racerController.js
+│   │   ├── raceController.js
+│   │   └── eventController.js
+│   │
+│   ├── models/                  # Mongoose schemas
+│   │   ├── User.js
+│   │   ├── Team.js
+│   │   ├── Racer.js
+│   │   ├── Race.js
+│   │   ├── RaceEntry.js
+│   │   ├── LapTime.js
+│   │   ├── PitStop.js
+│   │   └── Event.js
+│   │
+│   ├── routes/                  # Express routes
+│   │   ├── authRoutes.js
+│   │   ├── teamRoutes.js
+│   │   ├── racerRoutes.js
+│   │   ├── raceRoutes.js
+│   │   └── eventRoutes.js
+│   │
+│   ├── middleware/
+│   │   ├── authMiddleware.js    # JWT & role-based protection
+│   │   └── errorMiddleware.js
+│   │
+│   ├── utils/
+│   │   ├── calculateGaps.js
+│   │   └── constants.js
+│   │
+│   ├── server.js                # Express + Socket.IO entry point
+│   └── package.json
+│
+├── frontend/
+│   ├── public/
+│   │   ├── index.html
+│   │   ├── favicon.ico
+│   │   └── logos/               # Team/racer logos
+│   │
+│   ├── src/
+│   │   ├── api/                 # Axios calls
+│   │   │   ├── authApi.js
+│   │   │   ├── teamApi.js
+│   │   │   ├── racerApi.js
+│   │   │   ├── raceApi.js
+│   │   │   └── socket.js        # Socket.IO client
+│   │   │
+│   │   ├── components/          # Shared UI components
+│   │   │   ├── Leaderboard.js
+│   │   │   ├── RacerCard.js
+│   │   │   ├── TeamCard.js
+│   │   │   ├── Navbar.js
+│   │   │   └── Loader.js
+│   │   │
+│   │   ├── pages/               # Main views
+│   │   │   ├── Admin/
+│   │   │   │   ├── Dashboard.js
+│   │   │   │   ├── RaceControl.js
+│   │   │   │   └── RaceCreate.js
+│   │   │   │
+│   │   │   ├── Owner/
+│   │   │   │   ├── OwnerDashboard.js
+│   │   │   │   ├── TeamRegister.js
+│   │   │   │   └── AddRacers.js
+│   │   │   │
+│   │   │   ├── Viewer/
+│   │   │   │   └── LiveRace.js
+│   │   │   │
+│   │   │   ├── Auth/
+│   │   │   │   ├── Login.js
+│   │   │   │   └── Register.js
+│   │   │   │
+│   │   │   └── Home.js
+│   │   │
+│   │   ├── styles/
+│   │   │   └── index.css        # Tailwind entry
+│   │   │
+│   │   ├── App.js
+│   │   └── index.js
+│   │
+│   └── package.json
+│
+├── .env
+├── tailwind.config.js
+├── postcss.config.js
+├── package.json
+└── README.md
+
+
+
+📜 Full Descriptive Prompt
+
+The purpose of this system is to design and implement a comprehensive race management platform using the MERN stack with Tailwind CSS for styling. The application will be divided into three major user perspectives: Admin Panel, Team Owner Panel, and Viewer Interface. Each of these perspectives has distinct roles and functions, but all of them are interconnected to simulate the flow of a real-world racing event. The central idea is to allow the admin to fully control race creation, progression, and results; allow team owners to manage their teams and racers; and finally, allow viewers to experience real-time updates of the race leaderboard in a visually dynamic format, much like professional racing broadcasts.
+
+The scope of the project covers user authentication, team and racer registration, race creation, race progression control, pit stop handling, tyre strategy updates, lap tracking, accident and DNF status management, and real-time broadcasting of race events. The functions span from database-level management of entities like teams, racers, and races to user-interface level interaction that provides easy control for admins, structured inputs for team owners, and engaging live race visualizations for viewers.
+
+1. Overall System Scope
+
+The system operates in three main layers:
+
+Data Layer (MongoDB) — where teams, racers, races, laps, pit stops, and user accounts are stored.
+
+Application Layer (Express.js + Node.js) — where the logic for authentication, race control, team management, pit stop tracking, and race progression resides.
+
+Presentation Layer (React + Tailwind) — where each user type interacts with the system.
+
+The Admin Panel manages the entire race life cycle, from initial setup to final results. The Owner Panel gives registered team owners the ability to register their teams, assign racers, and provide essential racer details like name, age, and nationality. The Viewer Interface provides the audience with a live experience of the race, showcasing real-time leaderboard updates, racer positions, pit stop events, lap completions, and retirements.
+
+The system needs to operate with real-time communication, meaning that whenever the admin updates race status (for example, when a racer overtakes another or enters a pit stop), the change should immediately reflect on the viewer side. This is achieved through a combination of socket communication and state synchronization between backend and frontend.
+
+2. Admin Panel Scope and Functions
+
+The Admin Panel is the control room of the entire application. It allows administrators to create races, configure all necessary details, manage live race updates, and finalize results.
+
+Race Creation
+
+When creating a race, the admin is required to enter several essential details. These include the venue, which specifies the circuit or location of the race, the total laps, which defines the race length, and the starting grid, which sets the initial positions of the racers. The admin should also specify the default tyre type that each racer begins with, though this can change as the race progresses. The system must allow the admin to see all the registered teams and racers to assign them to the starting grid.
+
+Race Progression
+
+During the race, the admin should be able to manipulate the positions of racers. For instance, when one racer overtakes another, the admin can drag or reorder the racers’ positions in the interface or use input controls to move them up or down in the leaderboard. This ensures that the live leaderboard displayed to viewers reflects the exact race dynamics.
+
+Lap Management
+
+The admin must have the ability to mark lap completions. When a racer completes a lap, the admin clicks or marks that racer’s progress, updating their lap count. This continues until all laps are complete for the winner. The lap progression should also calculate differences between racers, allowing the system to reflect time gaps, even if manually adjusted.
+
+Pit Stops
+
+Pit stop management is one of the most critical and realistic functions. When a racer enters the pit, the admin can trigger a pit stop action. The system should record the pit stop time, which can either be manually input or automatically calculated based on a standard time with some randomness. After the pit stop, the admin can update the racer’s tyre type to reflect the new strategy. Pit stops should also affect the racer’s position, as they may lose places while stationary.
+
+Accidents and DNF
+
+The admin must also handle unforeseen race incidents such as accidents or retirements. If a racer is involved in an accident or suffers mechanical failure, the admin can mark them with a DNF (Did Not Finish) status. The system should remove that racer from active positions while still retaining their details in the race logs for statistics.
+
+Event Logging and Final Results
+
+Every action performed during the race — overtakes, pit stops, lap completions, accidents — should be logged as race events. Once the race is complete, the admin finalizes results, which get stored in the database as permanent records. These results may later be used for championship standings, historical records, or post-race analysis.
+
+3. Team Owner Panel Scope and Functions
+
+The Team Owner Panel focuses on team and racer management. Owners are given accounts with login credentials. Once logged in, they are able to create and manage their teams.
+
+Team Registration
+
+Each owner can create one team. The registration form includes inputs such as team name, team logo, and country of origin. The system validates that no duplicate team names exist and ensures that ownership is unique.
+
+Racer Registration
+
+A team can have up to two racers, just like in professional motorsports. When adding racers, the owner must provide name, age, and country. Additional details can be included, such as racing number and profile picture, to enhance presentation. Once registered, racers are stored in the system and associated with their team.
+
+Interaction with Admin
+
+The racers added by team owners become visible to the admin in their panel. This allows the admin to select them for races, assign grid positions, and manage their performance. Owners do not interfere with race control during live events — their role ends at racer registration.
+
+Profile Management
+
+Owners should be able to log in and update details such as their team name, logos, or racer details if needed. However, once a race is in progress, such updates should be locked to preserve consistency.
+
+4. Viewer Interface Scope and Functions
+
+The Viewer Interface is purely read-only and designed to mimic the professional race leaderboard style, such as those seen in Formula 1 broadcasts. Its purpose is to make the race exciting and visually appealing to the audience.
+
+Real-Time Leaderboard
+
+The leaderboard displays all active racers, their positions, lap counts, tyre types, pit stop history, and time gaps. Whenever the admin updates the race from their panel, the changes propagate to viewers in real time. For example, if the admin moves a racer up due to an overtake, the viewer immediately sees the new position.
+
+Race Progression Indicators
+
+The viewer interface should include race progression details such as:
+
+Current lap out of total laps (e.g., Lap 23/57)
+
+Racer’s current tyre type (Soft, Medium, Hard)
+
+Number of pit stops and time spent in each
+
+Gaps between racers in seconds
+
+DNF status for any retired racers
+
+Visual Styling
+
+The UI should be styled to resemble real-world race graphics, using team logos, racer country flags, and clear color coding for tyre compounds. Tailwind CSS ensures a sleek, modern interface that is also responsive across devices.
+
+5. System Entities and Functions
+
+To tie the three perspectives together, the system relies on several core entities:
+
+User: Can be an admin or owner, with role-based access.
+
+Team: Created by owners, containing metadata and associated racers.
+
+Racer: Belongs to a team, carries details such as name, age, nationality, racing number.
+
+Race: Created by admin, containing details like venue, total laps, and participating racers.
+
+RaceEntry: Links a racer to a specific race, storing their grid position, tyre type, and performance.
+
+LapTime: Tracks lap completion for each racer.
+
+PitStop: Records pit stop events, tyre changes, and time lost.
+
+Event: Logs any race activity such as overtakes, DNFs, or pit stops.
+
+Each of these entities has functions tied to the perspectives. For example, owners create teams and racers, while admins create races and manipulate RaceEntries, and viewers only read aggregated events and race status.
+
+6. Additional Considerations
+
+The system should handle authentication and authorization to separate roles clearly. Owners must not access admin functions, and viewers should not require login to watch races. Error handling and input validation are critical to avoid inconsistencies in race data.
+
+Real-time updates are best managed through WebSockets, ensuring that when the admin changes race status, it is instantly pushed to connected viewers. For scalability, events can be logged sequentially, so that if a viewer joins midway, they can reconstruct the race progression.
+
+The scope also includes designing the system to be extensible. In the future, features like championship standings, race history, or multi-race seasons can be added with minimal changes to the structure.
